@@ -172,73 +172,6 @@ def run_flu_once():
     return 'finish'
 
 
-async def async_task(db, item):
-    break_flag = True
-    counter = 0
-    while break_flag:
-        service_id = item['service_id']
-        subscription_url = "http://10.0.12.51:8780/sdk/S116/" + service_id
-        response = requests.get(url=subscription_url, headers={
-            'hospital_id': '45218368-8',  # 本院机构代码
-            'apply_unit_id': '0',  # 默认0
-            'exec_unit_id': '0',
-            'service_id': service_id,  # 服务id
-            'visit_type': '01',  # 01 门诊，03 住院，0401 体检，0201 急诊
-            'order_exec_id': '0',
-            'send_sys_id': item['send_sys_id'],
-            'extend_sub_id': '0',
-            'Authorization': 'Basic Zmx1OmZsdTEyMw=='
-        }, data={})
-        raw = json.loads(response.text)
-        print(raw)
-
-        if raw['status'] != 0:
-            result = raw['data']['body']
-            counter += 1
-            if service_id == 'BS301':
-                db[service_id].delete_many({'visitOrdNo': result['visitOrdNo']})
-                for diagnosis in result['diagnosis']:
-                    if diagnosis['diseaseCode'][0:1] == 'J':
-                        db['flu_patients'].insert_one({'patientId': result['patientLid'],
-                                                       'visitType': result['visitType'],
-                                                       'visitNo': result['visitNo'],
-                                                       'visitOdrNo': result['visitOrdNo'],
-                                                       'comeFrom': "BS301"})
-            elif service_id == 'BS302':
-                if result['triggerEvent'] == 'new':
-                    db[service_id].delete_many({'visitOrdNo': result['visitOrdNo']})
-                    for prescription in result['prescriptions']:
-                        for drugItem in prescription:
-                            if drugItem['drugCode'] in ['123456', '654321']:
-                                db['flu_patients'].insert_one({'patientId': result['patientLid'],
-                                                               'visitType': result['visitTypeCode'],
-                                                               'visitNo': result['visitNo'],
-                                                               'visitOdrNo': result['visitOrdNo'],
-                                                               'comeFrom': "BS302"})
-                elif result['triggerEvent'] == 'renew':
-                    pass
-            elif service_id == 'BS311':
-                pass
-            elif service_id == 'BS319':
-                '''
-                db['flu_patients'].insert_one({'patientId': result['data']['body']['patientLid'],
-                                               'visitType': result['data']['body']['visitType'],
-                                               'visitNo': result['data']['body']['medicalNo'],
-                                               'visitOdrNo': result['data']['body']['visitOrdNo'],
-                                               'comeFrom': "BS319"})
-                '''
-                pass
-            else:
-                pass
-            db[service_id].insert_one(result)
-        else:
-            if counter > 0:
-                print('\r收到' + str(counter) + '条' + service_id + ' --- ' + str(datetime.datetime.now()))
-            counter = 0
-            break_flag = False
-            break
-
-
 def move_to_upload_folder():
     for file_name in os.listdir('C:/Users/Elysion/Desktop/流感上报/' + datetime.datetime.now().strftime('%Y%m%d') + '/'):
         if file_name.endswith('.csv'):
@@ -253,12 +186,26 @@ def scheduler_upload_task():
     job_defaults = {'max_instances': 2}
     scheduler = BlockingScheduler()
     scheduler.add_job(run_once, 'interval', seconds=15, misfire_grace_time=15)
-    # scheduler.add_job(timer_runner, 'interval', seconds=15, misfire_grace_time=15)
+    scheduler.add_job(timer_runner, 'interval', seconds=15, misfire_grace_time=15)
     scheduler.start()
 
-    bg_scheduler = BackgroundScheduler()
-    bg_scheduler.add_job(timer_runner, 'interval', seconds=15, misfire_grace_time=15)
-    bg_scheduler.start()
+
+def request_web_sphere(param_item):
+    service_id = param_item['service_id']
+    subscription_url = "http://10.0.12.51:8780/sdk/S116/" + service_id
+    response = requests.get(url=subscription_url, headers={
+        'hospital_id': '45218368-8',  # 本院机构代码
+        'apply_unit_id': '0',  # 默认0
+        'exec_unit_id': '0',
+        'service_id': service_id,  # 服务id
+        'visit_type': '01',  # 01 门诊，03 住院，0401 体检，0201 急诊
+        'order_exec_id': '0',
+        'send_sys_id': param_item['send_sys_id'],
+        'extend_sub_id': '0',
+        'Authorization': 'Basic Zmx1OmZsdTEyMw=='
+    }, data={})
+    raw = json.loads(response.text)
+    return raw
 
 
 def run_once():
@@ -274,19 +221,7 @@ def run_once():
         counter = 0
         while break_flag:
             service_id = item['service_id']
-            subscription_url = "http://10.0.12.51:8780/sdk/S116/" + service_id
-            response = requests.get(url=subscription_url, headers={
-                'hospital_id': '45218368-8',  # 本院机构代码
-                'apply_unit_id': '0',  # 默认0
-                'exec_unit_id': '0',
-                'service_id': service_id,  # 服务id
-                'visit_type': '01',  # 01 门诊，03 住院，0401 体检，0201 急诊
-                'order_exec_id': '0',
-                'send_sys_id': item['send_sys_id'],
-                'extend_sub_id': '0',
-                'Authorization': 'Basic Zmx1OmZsdTEyMw=='
-            }, data={})
-            raw = json.loads(response.text)
+            raw = request_web_sphere(item)
             if raw['status'] != 0:
                 result = raw['data']['body']
                 counter += 1
@@ -336,7 +271,7 @@ def run_once():
 
 
 def timer_runner():
-    for i in range(14, -1, -1):
+    for i in range(13, -1, -1):
         print('\r下次轮询间隔{}秒'.format(i), end='')
         time.sleep(1)
 
